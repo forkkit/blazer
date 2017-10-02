@@ -47,17 +47,18 @@ const (
 )
 
 type b2err struct {
-	msg    string
-	method string
-	retry  int
-	code   int
+	msg        string
+	method     string
+	retry      int
+	statusCode int
+	code       string
 }
 
 func (e b2err) Error() string {
 	if e.method == "" {
 		return fmt.Sprintf("b2 error: %s", e.msg)
 	}
-	return fmt.Sprintf("%s: %d: %s", e.method, e.code, e.msg)
+	return fmt.Sprintf("%s: %d: %s: %s", e.method, e.statusCode, e.code, e.msg)
 }
 
 // Action checks an error and returns a recommended course of action.
@@ -69,13 +70,13 @@ func Action(err error) ErrAction {
 	if e.retry > 0 {
 		return Retry
 	}
-	if e.code >= 500 && e.code < 600 {
+	if e.statusCode >= http.StatusInternalServerError && e.statusCode < 600 {
 		if e.method == "b2_upload_file" || e.method == "b2_upload_part" {
 			return AttemptNewUpload
 		}
 	}
-	switch e.code {
-	case 401:
+	switch e.statusCode {
+	case http.StatusUnauthorized:
 		if e.method == "b2_authorize_account" {
 			return Punt
 		}
@@ -83,15 +84,15 @@ func Action(err error) ErrAction {
 			return AttemptNewUpload
 		}
 		return ReAuthenticate
-	case 400:
+	case http.StatusBadRequest:
 		// See restic/restic#1207
 		if e.method == "b2_upload_file" && strings.HasPrefix(e.msg, "more than one upload using auth token") {
 			return AttemptNewUpload
 		}
 		return Punt
-	case 408:
+	case http.StatusRequestTimeout:
 		return AttemptNewUpload
-	case 429, 500, 503:
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusServiceUnavailable:
 		return Retry
 	}
 	return Punt
@@ -102,12 +103,12 @@ func Action(err error) ErrAction {
 type ErrAction int
 
 // Code returns the error code and message.
-func Code(err error) (int, string) {
+func Code(err error) (int, string, string) {
 	e, ok := err.(b2err)
 	if !ok {
-		return 0, ""
+		return 0, "", ""
 	}
-	return e.code, e.msg
+	return e.statusCode, e.code, e.msg
 }
 
 const (
@@ -149,10 +150,11 @@ func mkErr(resp *http.Response) error {
 		retryAfter = int(r)
 	}
 	return b2err{
-		msg:    msg.Msg,
-		retry:  retryAfter,
-		code:   resp.StatusCode,
-		method: resp.Request.Header.Get("X-Blazer-Method"),
+		msg:        msg.Msg,
+		retry:      retryAfter,
+		statusCode: resp.StatusCode,
+		code:       msg.Code,
+		method:     resp.Request.Header.Get("X-Blazer-Method"),
 	}
 }
 
@@ -248,7 +250,7 @@ type B2 struct {
 	accountID   string
 	authToken   string
 	apiURI      string
-	downloadURI string
+	DownloadURI string
 	minPartSize int
 	opts        *b2Options
 }
@@ -258,7 +260,7 @@ func (b *B2) Update(n *B2) {
 	b.accountID = n.accountID
 	b.authToken = n.authToken
 	b.apiURI = n.apiURI
-	b.downloadURI = n.downloadURI
+	b.DownloadURI = n.DownloadURI
 	b.minPartSize = n.minPartSize
 	b.opts = n.opts
 }
@@ -424,7 +426,7 @@ func AuthorizeAccount(ctx context.Context, account, key string, opts ...AuthOpti
 		accountID:   b2resp.AccountID,
 		authToken:   b2resp.AuthToken,
 		apiURI:      b2resp.URI,
-		downloadURI: b2resp.DownloadURI,
+		DownloadURI: b2resp.DownloadURI,
 		minPartSize: b2resp.MinPartSize,
 		opts:        b2opts,
 	}, nil
@@ -597,7 +599,7 @@ func (b *Bucket) Update(ctx context.Context) (*Bucket, error) {
 
 // BaseURL returns the base part of the download URLs.
 func (b *Bucket) BaseURL() string {
-	return b.b2.downloadURI
+	return b.b2.DownloadURI
 }
 
 // ListBuckets wraps b2_list_buckets.
@@ -732,7 +734,7 @@ func (f *File) DeleteFileVersion(ctx context.Context) error {
 
 // LargeFile holds information necessary to implement B2 large file support.
 type LargeFile struct {
-	id string
+	ID string
 	b2 *B2
 
 	mu     sync.Mutex
@@ -756,7 +758,7 @@ func (b *Bucket) StartLargeFile(ctx context.Context, name, contentType string, i
 		return nil, err
 	}
 	return &LargeFile{
-		id:     b2resp.ID,
+		ID:     b2resp.ID,
 		b2:     b.b2,
 		hashes: make(map[int]string),
 	}, nil
@@ -765,7 +767,7 @@ func (b *Bucket) StartLargeFile(ctx context.Context, name, contentType string, i
 // CancelLargeFile wraps b2_cancel_large_file.
 func (l *LargeFile) CancelLargeFile(ctx context.Context) error {
 	b2req := &b2types.CancelLargeFileRequest{
-		ID: l.id,
+		ID: l.ID,
 	}
 	headers := map[string]string{
 		"Authorization": l.b2.authToken,
@@ -814,7 +816,7 @@ func (f *File) CompileParts(size int64, seen map[int]string) *LargeFile {
 		s[k] = v
 	}
 	return &LargeFile{
-		id:     f.id,
+		ID:     f.id,
 		b2:     f.b2,
 		size:   size,
 		hashes: s,
@@ -840,7 +842,7 @@ type getUploadPartURLResponse struct {
 // GetUploadPartURL wraps b2_get_upload_part_url.
 func (l *LargeFile) GetUploadPartURL(ctx context.Context) (*FileChunk, error) {
 	b2req := &getUploadPartURLRequest{
-		ID: l.id,
+		ID: l.ID,
 	}
 	b2resp := &getUploadPartURLResponse{}
 	headers := map[string]string{
@@ -868,18 +870,19 @@ func (fc *FileChunk) Reload(ctx context.Context) error {
 }
 
 // UploadPart wraps b2_upload_part.
-func (fc *FileChunk) UploadPart(ctx context.Context, r io.Reader, sha1 string, size, index int) (int, error) {
+func (fc *FileChunk) UploadPart(ctx context.Context, r io.Reader, sha1 string, size, index int) (string, error) {
 	headers := map[string]string{
 		"Authorization":     fc.token,
 		"X-Bz-Part-Number":  fmt.Sprintf("%d", index),
 		"Content-Length":    fmt.Sprintf("%d", size),
 		"X-Bz-Content-Sha1": sha1,
 	}
+	b2resp := &b2types.UploadPartResponse{}
 	if sha1 == "hex_digits_at_end" {
 		r = &keepFinalBytes{r: r, remain: size}
 	}
-	if err := fc.file.b2.opts.makeRequest(ctx, "b2_upload_part", "POST", fc.url, nil, nil, headers, &requestBody{body: r, size: int64(size)}); err != nil {
-		return 0, err
+	if err := fc.file.b2.opts.makeRequest(ctx, "b2_upload_part", "POST", fc.url, nil, b2resp, headers, &requestBody{body: r, size: int64(size)}); err != nil {
+		return "", err
 	}
 	fc.file.mu.Lock()
 	if sha1 == "hex_digits_at_end" {
@@ -888,7 +891,7 @@ func (fc *FileChunk) UploadPart(ctx context.Context, r io.Reader, sha1 string, s
 	fc.file.hashes[index] = sha1
 	fc.file.size += int64(size)
 	fc.file.mu.Unlock()
-	return size, nil
+	return b2resp.SHA1, nil
 }
 
 // FinishLargeFile wraps b2_finish_large_file.
@@ -896,7 +899,7 @@ func (l *LargeFile) FinishLargeFile(ctx context.Context) (*File, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	b2req := &b2types.FinishLargeFileRequest{
-		ID:     l.id,
+		ID:     l.ID,
 		Hashes: make([]string, len(l.hashes)),
 	}
 	b2resp := &b2types.FinishLargeFileResponse{}
@@ -1038,7 +1041,7 @@ func mkRange(offset, size int64) string {
 
 // DownloadFileByName wraps b2_download_file_by_name.
 func (b *Bucket) DownloadFileByName(ctx context.Context, name string, offset, size int64) (*FileReader, error) {
-	uri := fmt.Sprintf("%s/file/%s/%s", b.b2.downloadURI, b.Name, name)
+	uri := fmt.Sprintf("%s/file/%s/%s", b.b2.DownloadURI, b.Name, name)
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		return nil, err

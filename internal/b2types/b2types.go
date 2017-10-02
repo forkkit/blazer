@@ -150,6 +150,13 @@ type getUploadPartURLResponse struct {
 	Token string `json:"authorizationToken"`
 }
 
+type UploadPartResponse struct {
+	ID         string `json:"fileId"`
+	PartNumber int    `json:"partNumber"`
+	Size       int64  `json:"contentLength"`
+	SHA1       string `json:"contentSha1"`
+}
+
 type FinishLargeFileRequest struct {
 	ID     string   `json:"fileId"`
 	Hashes []string `json:"partSha1Array"`
