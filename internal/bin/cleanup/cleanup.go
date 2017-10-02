@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/kurin/blazer/b2"
+	"github.com/minio/blazer/b2"
 )
 
 const (

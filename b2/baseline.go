@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kurin/blazer/base"
+	"github.com/minio/blazer/base"
 )
 
 // This file wraps the base package in a thin layer, for testing.  It should be
