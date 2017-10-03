@@ -734,7 +734,12 @@ func (f *File) DeleteFileVersion(ctx context.Context) error {
 
 // LargeFile holds information necessary to implement B2 large file support.
 type LargeFile struct {
-	ID string
+	ID          string
+	Timestamp   time.Time
+	Name        string
+	ContentType string
+	Info        map[string]string
+
 	b2 *B2
 
 	mu     sync.Mutex
@@ -762,6 +767,37 @@ func (b *Bucket) StartLargeFile(ctx context.Context, name, contentType string, i
 		b2:     b.b2,
 		hashes: make(map[int]string),
 	}, nil
+}
+
+// ListUnfinishedLargeFiles - lists all the unfinied large files.
+func (b *Bucket) ListUnfinishedLargeFiles(ctx context.Context, continuation string, count int) ([]*LargeFile, string, error) {
+	b2req := &b2types.ListUnfinishedLargeFilesRequest{
+		BucketID:     b.id,
+		Continuation: continuation,
+		Count:        count,
+	}
+	b2resp := &b2types.ListUnfinishedLargeFilesResponse{}
+	headers := map[string]string{
+		"Authorization": b.b2.authToken,
+	}
+	if err := b.b2.opts.makeRequest(ctx, "b2_list_unfinished_large_files", "POST", b.b2.apiURI+b2types.V1api+"b2_list_unfinished_large_files",
+		b2req, b2resp, headers, nil); err != nil {
+		return nil, "", err
+	}
+	cont := b2resp.NextID
+	var largeFiles []*LargeFile
+	for _, f := range b2resp.Files {
+		largeFiles = append(largeFiles, &LargeFile{
+			ID:          f.ID,
+			Timestamp:   millitime(f.Timestamp),
+			Name:        f.Name,
+			Info:        f.Info,
+			ContentType: f.ContentType,
+			b2:          b.b2,
+			hashes:      make(map[int]string),
+		})
+	}
+	return largeFiles, cont, nil
 }
 
 // CancelLargeFile wraps b2_cancel_large_file.

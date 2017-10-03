@@ -125,6 +125,25 @@ type CancelLargeFileRequest struct {
 	ID string `json:"fileId"`
 }
 
+type ListUnfinishedLargeFilesRequest struct {
+	BucketID     string `json:"bucketId"`
+	Continuation string `json:"startFileId,omitempty"`
+	Count        int    `json:"maxFileCount,omitempty"`
+}
+
+type ListUnfinishedLargeFilesResponse struct {
+	NextID string `json:"nextFileId"`
+	Files  []struct {
+		AccountID   string            `json:"accountId"`
+		BucketID    string            `json:"bucketId"`
+		Name        string            `json:"fileName"`
+		ID          string            `json:"fileId"`
+		Timestamp   int64             `json:"uploadTimestamp"`
+		ContentType string            `json:"contentType"`
+		Info        map[string]string `json:"fileInfo,omitempty"`
+	} `json:"files"`
+}
+
 type ListPartsRequest struct {
 	ID    string `json:"fileId"`
 	Start int    `json:"startPartNumber"`
