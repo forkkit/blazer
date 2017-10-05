@@ -251,7 +251,7 @@ type B2 struct {
 	authToken   string
 	apiURI      string
 	DownloadURI string
-	minPartSize int
+	MinPartSize int
 	opts        *b2Options
 }
 
@@ -261,7 +261,7 @@ func (b *B2) Update(n *B2) {
 	b.authToken = n.authToken
 	b.apiURI = n.apiURI
 	b.DownloadURI = n.DownloadURI
-	b.minPartSize = n.minPartSize
+	b.MinPartSize = n.MinPartSize
 	b.opts = n.opts
 }
 
@@ -427,7 +427,7 @@ func AuthorizeAccount(ctx context.Context, account, key string, opts ...AuthOpti
 		authToken:   b2resp.AuthToken,
 		apiURI:      b2resp.URI,
 		DownloadURI: b2resp.DownloadURI,
-		minPartSize: b2resp.MinPartSize,
+		MinPartSize: b2resp.MinPartSize,
 		opts:        b2opts,
 	}, nil
 }
