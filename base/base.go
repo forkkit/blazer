@@ -1167,6 +1167,7 @@ func (b *Bucket) HideFile(ctx context.Context, name string) (*File, error) {
 type FileInfo struct {
 	Name        string
 	SHA1        string
+	ID          string
 	Size        int64
 	ContentType string
 	Info        map[string]string
@@ -1196,6 +1197,7 @@ func (f *File) GetFileInfo(ctx context.Context) (*FileInfo, error) {
 		ContentType: b2resp.ContentType,
 		Info:        b2resp.Info,
 		Status:      b2resp.Action,
+		ID:          b2resp.FileID,
 		Timestamp:   millitime(b2resp.Timestamp),
 	}
 	return f.Info, nil
