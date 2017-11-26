@@ -236,9 +236,9 @@ func (b *b2Bucket) updateBucket(ctx context.Context, attrs *BucketAttrs) error {
 	if err == nil {
 		b.b = newBucket
 	}
-	code, _ := base.Code(err)
+	code, _, _ := base.Code(err)
 	if code == 409 {
-		return b2err{
+		return Error{
 			err:              err,
 			isUpdateConflict: true,
 		}
@@ -317,12 +317,12 @@ func (b *b2Bucket) listFileVersions(ctx context.Context, count int, nextName, ne
 func (b *b2Bucket) downloadFileByName(ctx context.Context, name string, offset, size int64) (b2FileReaderInterface, error) {
 	fr, err := b.b.DownloadFileByName(ctx, name, offset, size)
 	if err != nil {
-		code, _ := base.Code(err)
+		code, _, _ := base.Code(err)
 		switch code {
 		case http.StatusRequestedRangeNotSatisfiable:
 			return nil, errNoMoreContent
 		case http.StatusNotFound:
-			return nil, b2err{err: err, notFoundErr: true}
+			return nil, Error{err: err, notFoundErr: true}
 		}
 		return nil, err
 	}
@@ -427,7 +427,8 @@ func (b *b2FileChunk) reload(ctx context.Context) error {
 }
 
 func (b *b2FileChunk) uploadPart(ctx context.Context, r io.Reader, sha1 string, size, index int) (int, error) {
-	return b.b.UploadPart(ctx, r, sha1, size, index)
+	_, err := b.b.UploadPart(ctx, r, sha1, size, index)
+	return index, err
 }
 
 func (b *b2FileReader) Read(p []byte) (int, error) {

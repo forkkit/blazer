@@ -168,20 +168,20 @@ type LifecycleRule struct {
 	DaysHiddenUntilDeleted int
 }
 
-type b2err struct {
+type Error struct {
 	err              error
 	notFoundErr      bool
 	isUpdateConflict bool
 }
 
-func (e b2err) Error() string {
+func (e Error) Error() string {
 	return e.err.Error()
 }
 
 // IsNotExist reports whether a given error indicates that an object or bucket
 // does not exist.
 func IsNotExist(err error) bool {
-	berr, ok := err.(b2err)
+	berr, ok := err.(Error)
 	if !ok {
 		return false
 	}
@@ -203,7 +203,7 @@ func (c *Client) Bucket(ctx context.Context, name string) (*Bucket, error) {
 			}, nil
 		}
 	}
-	return nil, b2err{
+	return nil, Error{
 		err:         fmt.Errorf("%s: bucket not found", name),
 		notFoundErr: true,
 	}
@@ -260,7 +260,7 @@ func (c *Client) ListBuckets(ctx context.Context) ([]*Bucket, error) {
 // IsUpdateConflict reports whether a given error is the result of a bucket
 // update conflict.
 func IsUpdateConflict(err error) bool {
-	e, ok := err.(b2err)
+	e, ok := err.(Error)
 	if !ok {
 		return false
 	}
@@ -299,7 +299,7 @@ func (b *Bucket) Delete(ctx context.Context) error {
 	// they update the implementation to match the documentation, we're just going
 	// to regexp over the error message and hope it's okay.
 	if bNotExist.MatchString(err.Error()) {
-		return b2err{
+		return Error{
 			err:         err,
 			notFoundErr: true,
 		}
@@ -585,7 +585,7 @@ func (b *Bucket) Reveal(ctx context.Context, name string) error {
 		return err
 	}
 	if len(objs) < 1 || objs[0].name != name {
-		return b2err{err: fmt.Errorf("%s: not found", name), notFoundErr: true}
+		return Error{err: fmt.Errorf("%s: not found", name), notFoundErr: true}
 	}
 	obj := objs[0]
 	if obj.f.status() != "hide" {
